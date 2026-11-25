@@ -74,6 +74,7 @@ with st.sidebar:
         - Clearance must meet data classification.
         - Confidential and Restricted data require MFA.
         - Only authorized reads return sales rows.
+        - The displayed demo identity does not grant permissions.
         """
     )
     st.divider()
@@ -84,6 +85,7 @@ st.markdown(
     '<p class="section-note">Choose a quick scenario or customize each attribute below.</p>',
     unsafe_allow_html=True,
 )
+
 
 def apply_scenario(role, subject_tenant, resource_tenant, clearance, classification, mfa):
     st.session_state["role"] = role
@@ -98,25 +100,55 @@ def apply_scenario(role, subject_tenant, resource_tenant, clearance, classificat
 scenario_columns = st.columns(3)
 with scenario_columns[0]:
     if st.button("✅  Same-tenant read", use_container_width=True):
-        apply_scenario("analyst", "tenant-a", "tenant-a", Classification.INTERNAL, Classification.INTERNAL, True)
+        apply_scenario(
+            "analyst",
+            "tenant-a",
+            "tenant-a",
+            Classification.INTERNAL,
+            Classification.INTERNAL,
+            True,
+        )
         st.rerun()
+
 with scenario_columns[1]:
     if st.button("↔️  Cross-tenant request", use_container_width=True):
-        apply_scenario("analyst", "tenant-a", "tenant-b", Classification.INTERNAL, Classification.INTERNAL, True)
+        apply_scenario(
+            "analyst",
+            "tenant-a",
+            "tenant-b",
+            Classification.INTERNAL,
+            Classification.INTERNAL,
+            True,
+        )
         st.rerun()
+
 with scenario_columns[2]:
     if st.button("🛡️  Missing MFA", use_container_width=True):
-        apply_scenario("analyst", "tenant-a", "tenant-a", Classification.RESTRICTED, Classification.CONFIDENTIAL, False)
+        apply_scenario(
+            "analyst",
+            "tenant-a",
+            "tenant-a",
+            Classification.RESTRICTED,
+            Classification.CONFIDENTIAL,
+            False,
+        )
         st.rerun()
+
 
 with st.form("access_request_form"):
     identity_column, resource_column = st.columns(2, gap="large")
 
     with identity_column:
         st.markdown("#### 1 · Who is requesting?")
-        role = st.selectbox("Role", ["analyst", "engineer", "admin"], key="role")
+        role = st.selectbox(
+            "Demo identity (display only)",
+            ["analyst", "engineer", "admin"],
+            key="role",
+        )
         subject_tenant = st.selectbox(
-            "User's tenant", ["tenant-a", "tenant-b"], key="subject_tenant"
+            "User's tenant",
+            ["tenant-a", "tenant-b"],
+            key="subject_tenant",
         )
         clearance = st.selectbox(
             "User clearance",
@@ -128,7 +160,9 @@ with st.form("access_request_form"):
     with resource_column:
         st.markdown("#### 2 · What is being requested?")
         resource_tenant = st.selectbox(
-            "Data tenant", ["tenant-a", "tenant-b"], key="resource_tenant"
+            "Data tenant",
+            ["tenant-a", "tenant-b"],
+            key="resource_tenant",
         )
         action = st.selectbox(
             "Requested action",
@@ -149,6 +183,7 @@ with st.form("access_request_form"):
         type="primary",
         use_container_width=True,
     )
+
 
 if submitted:
     request = AccessRequest(
@@ -192,6 +227,7 @@ if submitted:
             "action": action.value,
         }
 
+
 st.divider()
 st.subheader("Decision")
 
@@ -202,14 +238,19 @@ else:
     outcome = "ALLOW" if decision["allowed"] else "DENY"
     metric_columns = st.columns(3)
     metric_columns[0].metric("Policy decision", outcome)
-    metric_columns[1].metric("Requester", decision["role"].title())
+    metric_columns[1].metric("Demo identity", decision["role"].title())
     metric_columns[2].metric("Requested action", decision["action"].title())
 
     if decision["allowed"]:
         st.success(decision["reason"])
-        st.dataframe(decision["records"], use_container_width=True, hide_index=True)
+        st.dataframe(
+            decision["records"],
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         st.error(decision["reason"])
+
 
 audit_tab, policy_tab = st.tabs(["🧾  Audit trail", "📘  Policy reference"])
 
@@ -217,6 +258,7 @@ with audit_tab:
     st.markdown("#### Recent access decisions")
     log_path = Path(__file__).resolve().parents[2] / "logs" / "access.log"
     entries = []
+
     if log_path.exists():
         for line in log_path.read_text(encoding="utf-8").splitlines():
             try:
@@ -227,28 +269,55 @@ with audit_tab:
     if entries:
         filter_columns = st.columns([1, 3])
         decision_filter = filter_columns[0].selectbox(
-            "Filter decisions", ["All", "ALLOW", "DENY"]
+            "Filter decisions",
+            ["All", "ALLOW", "DENY"],
         )
         visible_entries = list(reversed(entries[-100:]))
+
         if decision_filter != "All":
             visible_entries = [
-                entry for entry in visible_entries
+                entry
+                for entry in visible_entries
                 if entry.get("decision") == decision_filter
             ]
+
         st.caption(f"Showing {len(visible_entries)} of {len(entries)} recorded events.")
-        st.dataframe(visible_entries, use_container_width=True, hide_index=True)
+        st.dataframe(
+            visible_entries,
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         st.info("No access attempts have been logged yet.")
+
 
 with policy_tab:
     st.markdown("#### Decision rules")
     st.dataframe(
         [
-            {"Check": "Tenant isolation", "Rule": "User tenant must match data tenant"},
-            {"Check": "Clearance", "Rule": "User clearance must meet or exceed classification"},
-            {"Check": "MFA", "Rule": "Required for Confidential and Restricted data"},
-            {"Check": "Role", "Rule": "Analyst: read · Engineer: read/write · Admin: read/write/delete"},
-            {"Check": "Data service", "Rule": "This demo currently returns authorized sales reads only"},
+            {
+                "Check": "Tenant isolation",
+                "Rule": "User tenant must match data tenant",
+            },
+            {
+                "Check": "Clearance",
+                "Rule": "User clearance must meet or exceed classification",
+            },
+            {
+                "Check": "MFA",
+                "Rule": "Required for Confidential and Restricted data",
+            },
+            {
+                "Check": "ABAC attributes",
+                "Rule": (
+                    "Decisions use tenant, clearance, classification, action, and MFA; "
+                    "the displayed demo identity does not grant permissions"
+                ),
+            },
+            {
+                "Check": "Data service",
+                "Rule": "This demo currently returns authorized sales reads only",
+            },
         ],
         use_container_width=True,
         hide_index=True,
